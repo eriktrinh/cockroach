@@ -110,7 +110,7 @@ func ProcessComputedColumns(
 
 	// TODO(justin): it's unfortunate that this parses and typechecks the
 	// ComputeExprs on every query.
-	computedExprs, err := MakeComputedExprs(computedCols, tableDesc, tn, txCtx, evalCtx)
+	computedExprs, err := MakeComputedExprs(computedCols, tableDesc, tn, txCtx, evalCtx, false)
 	return cols, computedCols, computedExprs, err
 }
 
@@ -126,6 +126,7 @@ func MakeComputedExprs(
 	tn *tree.TableName,
 	txCtx *transform.ExprTransformContext,
 	evalCtx *tree.EvalContext,
+	allowInputCols bool,
 ) ([]tree.TypedExpr, error) {
 	// Check to see if any of the columns have computed expressions. If there
 	// are none, we don't bother with constructing the map as the expressions
@@ -161,21 +162,32 @@ func MakeComputedExprs(
 	iv := &descContainer{tableDesc.Columns}
 	ivarHelper := tree.MakeIndexedVarHelper(iv, len(tableDesc.Columns))
 
-	sourceInfo := NewSourceInfoForSingleTable(
+	sources := []*DataSourceInfo{NewSourceInfoForSingleTable(
 		*tn, ResultColumnsFromColDescs(tableDesc.Columns),
-	)
+	)}
 
 	semaCtx := tree.MakeSemaContext(false)
 	semaCtx.IVarContainer = iv
+
+	maybeAddColumnInfo := func(col ColumnDescriptor) {
+		if allowInputCols {
+			ivarHelper.AppendSlot()
+			iv.cols = append(iv.cols, col)
+			sources = append(sources, NewSourceInfoForSingleTable(
+				*tn, ResultColumnsFromColDescs([]ColumnDescriptor{col}),
+			))
+		}
+	}
 
 	compExprIdx := 0
 	for _, col := range cols {
 		if !col.IsComputed() {
 			computedExprs = append(computedExprs, tree.DNull)
+			maybeAddColumnInfo(col)
 			continue
 		}
 		expr, _, _, err := ResolveNames(exprs[compExprIdx],
-			MakeMultiSourceInfo(sourceInfo),
+			MakeMultiSourceInfo(sources...),
 			ivarHelper, evalCtx.SessionData.SearchPath)
 		if err != nil {
 			return nil, err
@@ -190,6 +202,7 @@ func MakeComputedExprs(
 		}
 		computedExprs = append(computedExprs, typedExpr)
 		compExprIdx++
+		maybeAddColumnInfo(col)
 	}
 	return computedExprs, nil
 }

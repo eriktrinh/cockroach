@@ -2379,6 +2379,8 @@ INSERT INTO t.kv VALUES ('a', 'b');
 			`schema change statement cannot follow a statement that has written in the same transaction`},
 		// schema change at the end of a read only transaction.
 		{`select-create`, `SELECT * FROM t.kv`, `CREATE INDEX bar ON t.kv (v)`, ``},
+		{`index-on-add-col`, `ALTER TABLE t.kv ADD i INT`,
+			`CREATE INDEX foobar ON t.kv (i)`, ``},
 	}
 
 	for _, testCase := range testCases {

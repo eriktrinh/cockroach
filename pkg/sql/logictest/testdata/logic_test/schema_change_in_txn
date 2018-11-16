@@ -521,3 +521,24 @@ query TTBTTTB
 SHOW COLUMNS FROM customers
 ----
 k  CHAR  false  NULL  ·  {"primary"}  false
+
+subtest add_multiple_computed_elements
+
+statement ok
+BEGIN
+
+statement ok
+ALTER TABLE customers ADD i INT DEFAULT 5
+
+statement ok
+ALTER TABLE customers ADD j INT AS (i-1) STORED
+
+statement ok
+COMMIT
+
+query TII rowsort
+SELECT * FROM customers
+----
+b  5  4
+x  5  4
+z  5  4
