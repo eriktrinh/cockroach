@@ -46,7 +46,7 @@ var ScrubTypes = []sqlbase.ColumnType{
 
 type scrubTableReader struct {
 	tableReader
-	tableDesc sqlbase.TableDescriptor
+	tableDesc *sqlbase.ImmutableTableDescriptor
 	// fetcherResultToColIdx maps Fetcher results to the column index in
 	// the TableDescriptor. This is only initialized and used during scrub
 	// physical checks.
@@ -80,7 +80,7 @@ func newScrubTableReader(
 		indexIdx: int(spec.IndexIdx),
 	}
 
-	tr.tableDesc = spec.Table
+	tr.tableDesc = sqlbase.NewImmutableTableDescriptor(spec.Table)
 	tr.limitHint = limitHint(spec.LimitHint, post)
 
 	if err := tr.Init(
@@ -109,13 +109,13 @@ func newScrubTableReader(
 	// This is because the emitted schema is ScrubTypes so neededColumns
 	// does not correctly represent the data being scanned.
 	if spec.IndexIdx == 0 {
-		neededColumns.AddRange(0, len(spec.Table.Columns)-1)
-		for i := range spec.Table.Columns {
+		neededColumns.AddRange(0, len(tr.tableDesc.Columns)-1)
+		for i := range tr.tableDesc.Columns {
 			tr.fetcherResultToColIdx = append(tr.fetcherResultToColIdx, i)
 		}
 	} else {
-		colIdxMap := spec.Table.ColumnIdxMap()
-		err := spec.Table.Indexes[spec.IndexIdx-1].RunOverAllColumns(func(id sqlbase.ColumnID) error {
+		colIdxMap := tr.tableDesc.ColumnIdxMap()
+		err := tr.tableDesc.Indexes[spec.IndexIdx-1].RunOverAllColumns(func(id sqlbase.ColumnID) error {
 			neededColumns.Add(colIdxMap[id])
 			return nil
 		})
@@ -125,7 +125,7 @@ func newScrubTableReader(
 	}
 
 	if _, _, err := initRowFetcher(
-		&tr.fetcher, &tr.tableDesc, int(spec.IndexIdx), tr.tableDesc.ColumnIdxMap(), spec.Reverse,
+		&tr.fetcher, tr.tableDesc, int(spec.IndexIdx), tr.tableDesc.ColumnIdxMap(), spec.Reverse,
 		neededColumns, true /* isCheck */, &tr.alloc,
 		distsqlpb.ScanVisibility_PUBLIC,
 	); err != nil {
@@ -169,7 +169,7 @@ func (tr *scrubTableReader) generateScrubErrorRow(
 		return nil, err
 	}
 
-	primaryKeyValues := tr.prettyPrimaryKeyValues(row, &tr.tableDesc)
+	primaryKeyValues := tr.prettyPrimaryKeyValues(row, tr.tableDesc)
 	return sqlbase.EncDatumRow{
 		sqlbase.DatumToEncDatum(
 			ScrubTypes[0],
@@ -187,7 +187,7 @@ func (tr *scrubTableReader) generateScrubErrorRow(
 }
 
 func (tr *scrubTableReader) prettyPrimaryKeyValues(
-	row sqlbase.EncDatumRow, table *sqlbase.TableDescriptor,
+	row sqlbase.EncDatumRow, table *sqlbase.ImmutableTableDescriptor,
 ) string {
 	colIdxMap := make(map[sqlbase.ColumnID]int, len(table.Columns))
 	for i, c := range table.Columns {

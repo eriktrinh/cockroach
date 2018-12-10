@@ -65,7 +65,7 @@ type joinReader struct {
 	// ProcessorBase.State == StateRunning.
 	runningState joinReaderState
 
-	desc      sqlbase.TableDescriptor
+	desc      *sqlbase.ImmutableTableDescriptor
 	index     *sqlbase.IndexDescriptor
 	colIdxMap map[sqlbase.ColumnID]int
 
@@ -142,7 +142,7 @@ func newJoinReader(
 	}
 
 	jr := &joinReader{
-		desc:                 spec.Table,
+		desc:                 sqlbase.NewImmutableTableDescriptor(spec.Table),
 		input:                input,
 		inputTypes:           input.OutputTypes(),
 		lookupCols:           spec.LookupColumns,
@@ -217,18 +217,18 @@ func newJoinReader(
 		neededIndexColumns = getIndexColSet(&jr.desc.PrimaryIndex, jr.colIdxMap)
 		jr.primaryFetcher = &row.Fetcher{}
 		_, _, err = initRowFetcher(
-			jr.primaryFetcher, &jr.desc, 0 /* indexIdx */, jr.colIdxMap, false, /* reverse */
+			jr.primaryFetcher, jr.desc, 0 /* indexIdx */, jr.colIdxMap, false, /* reverse */
 			jr.neededRightCols(), false /* isCheck */, &jr.alloc,
 			distsqlpb.ScanVisibility_PUBLIC,
 		)
 		if err != nil {
 			return nil, err
 		}
-		jr.primaryColumnTypes, err = getPrimaryColumnTypes(&jr.desc)
+		jr.primaryColumnTypes, err = getPrimaryColumnTypes(jr.desc)
 		if err != nil {
 			return nil, err
 		}
-		jr.primaryKeyPrefix = sqlbase.MakeIndexKeyPrefix(&jr.desc, jr.desc.PrimaryIndex.ID)
+		jr.primaryKeyPrefix = sqlbase.MakeIndexKeyPrefix(jr.desc.TableDesc(), jr.desc.PrimaryIndex.ID)
 
 		jr.primaryFetcherInput = &rowFetcherWrapper{Fetcher: jr.primaryFetcher}
 		if collectingStats {
@@ -236,7 +236,7 @@ func newJoinReader(
 		}
 	}
 	_, _, err = initRowFetcher(
-		&jr.fetcher, &jr.desc, int(spec.IndexIdx), jr.colIdxMap, false, /* reverse */
+		&jr.fetcher, jr.desc, int(spec.IndexIdx), jr.colIdxMap, false, /* reverse */
 		neededIndexColumns, false /* isCheck */, &jr.alloc,
 		distsqlpb.ScanVisibility_PUBLIC,
 	)
@@ -250,7 +250,7 @@ func newJoinReader(
 		jr.finishTrace = jr.outputStatsToTrace
 	}
 
-	jr.indexKeyPrefix = sqlbase.MakeIndexKeyPrefix(&jr.desc, jr.index.ID)
+	jr.indexKeyPrefix = sqlbase.MakeIndexKeyPrefix(jr.desc.TableDesc(), jr.index.ID)
 
 	// TODO(radu): verify the input types match the index key types
 	return jr, nil
@@ -273,7 +273,7 @@ func getIndexColSet(
 	return cols
 }
 
-func getPrimaryColumnTypes(table *sqlbase.TableDescriptor) ([]sqlbase.ColumnType, error) {
+func getPrimaryColumnTypes(table *sqlbase.ImmutableTableDescriptor) ([]sqlbase.ColumnType, error) {
 	columnTypes := make([]sqlbase.ColumnType, len(table.PrimaryIndex.ColumnIDs))
 	for i, columnID := range table.PrimaryIndex.ColumnIDs {
 		column, err := table.FindColumnByID(columnID)
@@ -330,7 +330,7 @@ func (jr *joinReader) generateKey(row sqlbase.EncDatumRow) (roachpb.Key, error) 
 		jr.indexKeyRow = append(jr.indexKeyRow, row[id])
 	}
 	return sqlbase.MakeKeyFromEncDatums(
-		jr.indexKeyPrefix, jr.indexKeyRow, jr.indexTypes[:numLookupCols], jr.indexDirs, &jr.desc,
+		jr.indexKeyPrefix, jr.indexKeyRow, jr.indexTypes[:numLookupCols], jr.indexDirs, jr.desc,
 		jr.index, &jr.alloc)
 }
 
@@ -605,7 +605,7 @@ func (jr *joinReader) primaryLookup(
 		}
 		key, err := sqlbase.MakeKeyFromEncDatums(
 			jr.primaryKeyPrefix, values, jr.primaryColumnTypes, jr.desc.PrimaryIndex.ColumnDirections,
-			&jr.desc, &jr.desc.PrimaryIndex, &jr.alloc)
+			jr.desc, &jr.desc.PrimaryIndex, &jr.alloc)
 		if err != nil {
 			return nil, err
 		}

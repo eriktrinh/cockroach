@@ -354,7 +354,7 @@ func (z *zigzagJoiner) Start(ctx context.Context) context.Context {
 type zigzagJoinerInfo struct {
 	fetcher    row.Fetcher
 	alloc      *sqlbase.DatumAlloc
-	table      *sqlbase.TableDescriptor
+	table      *sqlbase.ImmutableTableDescriptor
 	index      *sqlbase.IndexDescriptor
 	indexTypes []sqlbase.ColumnType
 	indexDirs  []sqlbase.IndexDescriptor_Direction
@@ -388,7 +388,7 @@ func (z *zigzagJoiner) setupInfo(spec *distsqlpb.ZigzagJoinerSpec, side int, col
 	info := z.infos[side]
 
 	info.alloc = &sqlbase.DatumAlloc{}
-	info.table = &spec.Tables[side]
+	info.table = sqlbase.NewImmutableTableDescriptor(spec.Tables[side])
 	info.eqColumnIDs = spec.EqColumns[side].Columns
 	indexID := spec.IndexIds[side]
 	if indexID == 0 {
@@ -445,7 +445,7 @@ func (z *zigzagJoiner) setupInfo(spec *distsqlpb.ZigzagJoinerSpec, side int, col
 		return err
 	}
 
-	info.prefix = sqlbase.MakeIndexKeyPrefix(info.table, info.index.ID)
+	info.prefix = sqlbase.MakeIndexKeyPrefix(info.table.TableDesc(), info.index.ID)
 	info.key, err = z.produceKeyFromBaseRow()
 
 	if err != nil {

@@ -157,7 +157,7 @@ func MakeKeyFromEncDatums(
 	values EncDatumRow,
 	types []ColumnType,
 	dirs []IndexDescriptor_Direction,
-	tableDesc *TableDescriptor,
+	tableDesc *ImmutableTableDescriptor,
 	index *IndexDescriptor,
 	alloc *DatumAlloc,
 ) (roachpb.Key, error) {

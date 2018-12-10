@@ -64,19 +64,12 @@ func newColBatchScan(
 	if flowCtx.nodeID == 0 {
 		return nil, errors.Errorf("attempting to create a colBatchScan with uninitialized NodeID")
 	}
+	table := sqlbase.NewImmutableTableDescriptor(spec.Table)
 
 	limitHint := limitHint(spec.LimitHint, post)
 
-	numCols := len(spec.Table.Columns)
 	returnMutations := spec.Visibility == distsqlpb.ScanVisibility_PUBLIC_AND_NOT_PUBLIC
-	if returnMutations {
-		for i := range spec.Table.Mutations {
-			if spec.Table.Mutations[i].GetColumn() != nil {
-				numCols++
-			}
-		}
-	}
-	typs := spec.Table.ColumnTypesWithMutations(returnMutations)
+	typs := table.ColumnTypesWithMutations(returnMutations)
 	helper := ProcOutputHelper{}
 	if err := helper.Init(
 		post,
@@ -89,10 +82,10 @@ func newColBatchScan(
 
 	neededColumns := helper.neededColumns()
 
-	columnIdxMap := spec.Table.ColumnIdxMapWithMutations(returnMutations)
+	columnIdxMap := table.ColumnIdxMapWithMutations(returnMutations)
 	fetcher := row.CFetcher{}
 	if _, _, err := initCRowFetcher(
-		&fetcher, &spec.Table, int(spec.IndexIdx), columnIdxMap, spec.Reverse,
+		&fetcher, table, int(spec.IndexIdx), columnIdxMap, spec.Reverse,
 		neededColumns, spec.IsCheck, spec.Visibility,
 	); err != nil {
 		return nil, err
@@ -114,7 +107,7 @@ func newColBatchScan(
 // initCRowFetcher initializes a row.CFetcher. See initRowFetcher.
 func initCRowFetcher(
 	fetcher *row.CFetcher,
-	desc *sqlbase.TableDescriptor,
+	desc *sqlbase.ImmutableTableDescriptor,
 	indexIdx int,
 	colIdxMap map[sqlbase.ColumnID]int,
 	reverseScan bool,
@@ -122,18 +115,17 @@ func initCRowFetcher(
 	isCheck bool,
 	scanVisibility distsqlpb.ScanVisibility,
 ) (index *sqlbase.IndexDescriptor, isSecondaryIndex bool, err error) {
-	immutDesc := sqlbase.NewImmutableTableDescriptor(*desc)
-	index, isSecondaryIndex, err = immutDesc.FindIndexByIndexIdx(indexIdx)
+	index, isSecondaryIndex, err = desc.FindIndexByIndexIdx(indexIdx)
 	if err != nil {
 		return nil, false, err
 	}
 
-	cols := immutDesc.Columns
+	cols := desc.Columns
 	if scanVisibility == distsqlpb.ScanVisibility_PUBLIC_AND_NOT_PUBLIC {
-		cols = immutDesc.ReadableColumns
+		cols = desc.ReadableColumns
 	}
 	tableArgs := row.FetcherTableArgs{
-		Desc:             immutDesc,
+		Desc:             desc,
 		Index:            index,
 		ColIdxMap:        colIdxMap,
 		IsSecondaryIndex: isSecondaryIndex,

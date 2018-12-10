@@ -36,7 +36,7 @@ type indexJoiner struct {
 	ProcessorBase
 
 	input RowSource
-	desc  sqlbase.TableDescriptor
+	desc  *sqlbase.ImmutableTableDescriptor
 
 	// fetcherInput wraps fetcher in a RowSource implementation and should be used
 	// to get rows from the fetcher. This enables the indexJoiner to wrap the
@@ -73,10 +73,11 @@ func newIndexJoiner(
 	if spec.IndexIdx != 0 {
 		return nil, errors.Errorf("index join must be against primary index")
 	}
+	table := sqlbase.NewImmutableTableDescriptor(spec.Table)
 	ij := &indexJoiner{
 		input:     input,
-		desc:      spec.Table,
-		keyPrefix: sqlbase.MakeIndexKeyPrefix(&spec.Table, spec.Table.PrimaryIndex.ID),
+		desc:      table,
+		keyPrefix: sqlbase.MakeIndexKeyPrefix(table.TableDesc(), table.PrimaryIndex.ID),
 		batchSize: indexJoinerBatchSize,
 	}
 	needMutations := spec.Visibility == distsqlpb.ScanVisibility_PUBLIC_AND_NOT_PUBLIC
@@ -103,7 +104,7 @@ func newIndexJoiner(
 	}
 	if _, _, err := initRowFetcher(
 		&ij.fetcher,
-		&ij.desc,
+		ij.desc,
 		0, /* primary index */
 		ij.desc.ColumnIdxMapWithMutations(needMutations),
 		false, /* reverse */
@@ -205,7 +206,7 @@ func (ij *indexJoiner) generateSpan(row sqlbase.EncDatumRow) (roachpb.Span, erro
 	keyRow := row[:numKeyCols]
 	types := ij.input.OutputTypes()[:numKeyCols]
 	key, err := sqlbase.MakeKeyFromEncDatums(
-		ij.keyPrefix, keyRow, types, ij.desc.PrimaryIndex.ColumnDirections, &ij.desc,
+		ij.keyPrefix, keyRow, types, ij.desc.PrimaryIndex.ColumnDirections, ij.desc,
 		&ij.desc.PrimaryIndex, &ij.alloc)
 	if err != nil {
 		return roachpb.Span{}, err
